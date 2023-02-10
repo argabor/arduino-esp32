@@ -27,6 +27,7 @@ extern "C" {
 #include <stdlib.h>
 #include "esp_system.h"
 }
+#include "esp32-hal-log.h"
 
 void randomSeed(unsigned long seed)
 {
@@ -35,25 +36,17 @@ void randomSeed(unsigned long seed)
     }
 }
 
-long random(long howbig)
+long random( long howsmall, long howbig );
+long random( long howbig )
 {
-    uint32_t x = esp_random();
-    uint64_t m = uint64_t(x) * uint64_t(howbig);
-    uint32_t l = uint32_t(m);
-    if (l < howbig) {
-        uint32_t t = -howbig;
-        if (t >= howbig) {
-            t -= howbig;
-            if (t >= howbig) 
-                t %= howbig;
-        }
-        while (l < t) {
-            x = esp_random();
-            m = uint64_t(x) * uint64_t(howbig);
-            l = uint32_t(m);
-        }
-    }
-    return m >> 32;
+  if ( howbig == 0 )
+  {
+    return 0 ;
+  }
+  if (howbig < 0) {
+    return (random(0, -howbig));
+  }
+  return esp_random() % howbig;
 }
 
 long random(long howsmall, long howbig)
@@ -66,19 +59,22 @@ long random(long howsmall, long howbig)
 }
 
 long map(long x, long in_min, long in_max, long out_min, long out_max) {
-    long divisor = (in_max - in_min);
-    if(divisor == 0){
-        return -1; //AVR returns -1, SAM returns 0
+    const long run = in_max - in_min;
+    if(run == 0){
+        log_e("map(): Invalid input range, min == max");
+        return -1; // AVR returns -1, SAM returns 0
     }
-    return (x - in_min) * (out_max - out_min) / divisor + out_min;
+    const long rise = out_max - out_min;
+    const long delta = x - in_min;
+    return (delta * rise) / run + out_min;
 }
 
-unsigned int makeWord(unsigned int w)
+uint16_t makeWord(uint16_t w)
 {
     return w;
 }
 
-unsigned int makeWord(unsigned char h, unsigned char l)
+uint16_t makeWord(uint8_t h, uint8_t l)
 {
     return (h << 8) | l;
 }

@@ -68,8 +68,9 @@ public:
     , _path(path)
     , _cache_header(cache_header)
     {
-        _isFile = fs.exists(path);
-        log_v("StaticRequestHandler: path=%s uri=%s isFile=%d, cache_header=%s\r\n", path, uri, _isFile, cache_header);
+        File f = fs.open(path);
+        _isFile = (f && (! f.isDirectory()));
+        log_v("StaticRequestHandler: path=%s uri=%s isFile=%d, cache_header=%s\r\n", path, uri, _isFile, cache_header ? cache_header : ""); // issue 5506 - cache_header can be nullptr
         _baseUriLength = _uri.length();
     }
 
@@ -113,7 +114,7 @@ public:
         }
 
         File f = _fs.open(path, "r");
-        if (!f)
+        if (!f || !f.available())
             return false;
 
         if (_cache_header.length() != 0)

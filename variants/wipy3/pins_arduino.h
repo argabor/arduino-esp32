@@ -7,12 +7,13 @@
 #define NUM_DIGITAL_PINS        40
 #define NUM_ANALOG_INPUTS       18
 
-#define analogInputToDigitalPin(p)  (((p)<20)?(esp32_adc2gpio[(p)]):-1)
+#define analogInputToDigitalPin(p)  (((p)<20)?(analogChannelToDigitalPin(p)):-1)
 #define digitalPinToInterrupt(p)    (((p)<40)?(p):-1)
 #define digitalPinHasPWM(p)         (p < 34)
 
 static const uint8_t LED_BUILTIN = 0; // ->2812 RGB !!!
 #define BUILTIN_LED  LED_BUILTIN // backward compatibility
+#define LED_BUILTIN LED_BUILTIN
 
 #define ANT_SELECT 21   // GPIO21 - External Antenna Switch
 

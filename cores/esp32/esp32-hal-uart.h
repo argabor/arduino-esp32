@@ -22,6 +22,8 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
 #define SERIAL_5N1 0x8000010
 #define SERIAL_6N1 0x8000014
@@ -48,14 +50,26 @@ extern "C" {
 #define SERIAL_7O2 0x800003b
 #define SERIAL_8O2 0x800003f
 
+// These are Hardware Flow Contol possible usage
+// equivalent to UDF enum uart_hw_flowcontrol_t from 
+// https://github.com/espressif/esp-idf/blob/master/components/hal/include/hal/uart_types.h#L75-L81
+#define HW_FLOWCTRL_DISABLE   0x0       // disable HW Flow Control
+#define HW_FLOWCTRL_RTS       0x1       // use only RTS PIN for HW Flow Control
+#define HW_FLOWCTRL_CTS       0x2       // use only CTS PIN for HW Flow Control
+#define HW_FLOWCTRL_CTS_RTS   0x3       // use both CTS and RTS PIN for HW Flow Control
+
 struct uart_struct_t;
 typedef struct uart_struct_t uart_t;
 
-uart_t* uartBegin(uint8_t uart_nr, uint32_t baudrate, uint32_t config, int8_t rxPin, int8_t txPin, uint16_t queueLen, bool inverted);
+uart_t* uartBegin(uint8_t uart_nr, uint32_t baudrate, uint32_t config, int8_t rxPin, int8_t txPin, uint16_t rx_buffer_size, uint16_t tx_buffer_size, bool inverted, uint8_t rxfifo_full_thrhd);
 void uartEnd(uart_t* uart);
+
+// This is used to retrieve the Event Queue pointer from a UART IDF Driver in order to allow user to deal with its events
+void uartGetEventQueue(uart_t* uart, QueueHandle_t *q); 
 
 uint32_t uartAvailable(uart_t* uart);
 uint32_t uartAvailableForWrite(uart_t* uart);
+size_t uartReadBytes(uart_t* uart, uint8_t *buffer, size_t size, uint32_t timeout_ms);
 uint8_t uartRead(uart_t* uart);
 uint8_t uartPeek(uart_t* uart);
 
@@ -68,15 +82,42 @@ void uartFlushTxOnly(uart_t* uart, bool txOnly );
 void uartSetBaudRate(uart_t* uart, uint32_t baud_rate);
 uint32_t uartGetBaudRate(uart_t* uart);
 
-size_t uartResizeRxBuffer(uart_t* uart, size_t new_size);
+void uartSetRxInvert(uart_t* uart, bool invert);
+void uartSetRxTimeout(uart_t* uart, uint8_t numSymbTimeout);
+void uartSetRxFIFOFull(uart_t* uart, uint8_t numBytesFIFOFull);
+void uartSetFastReading(uart_t* uart);
 
 void uartSetDebug(uart_t* uart);
 int uartGetDebug();
 
+bool uartIsDriverInstalled(uart_t* uart);
+
+// Negative Pin Number will keep it unmodified, thus this function can set/reset individual pins
+bool uartSetPins(uart_t* uart, int8_t rxPin, int8_t txPin, int8_t ctsPin, int8_t rtsPin);
+void uartDetachPins(uart_t* uart, int8_t rxPin, int8_t txPin, int8_t ctsPin, int8_t rtsPin);
+
+// Enables or disables HW Flow Control function -- needs also to set CTS and/or RTS pins
+void uartSetHwFlowCtrlMode(uart_t *uart, uint8_t mode, uint8_t threshold);
+
 void uartStartDetectBaudrate(uart_t *uart);
 unsigned long uartDetectBaudrate(uart_t *uart);
 
-bool uartRxActive(uart_t* uart);
+/*
+    These functions are for testing puspose only and can be used in Arduino Sketches
+    Those are used in the UART examples
+*/
+
+// Make sure UART's RX signal is connected to TX pin
+// This creates a loop that lets us receive anything we send on the UART
+void uart_internal_loopback(uint8_t uartNum, int8_t rxPin);
+
+// Routines that generate BREAK in the UART for testing purpose
+
+// Forces a BREAK in the line based on SERIAL_8N1 configuration at any baud rate
+void uart_send_break(uint8_t uartNum);
+// Sends a buffer and at the end of the stream, it generates BREAK in the line
+int uart_send_msg_with_break(uint8_t uartNum, uint8_t *msg, size_t msgSize);
+
 
 #ifdef __cplusplus
 }

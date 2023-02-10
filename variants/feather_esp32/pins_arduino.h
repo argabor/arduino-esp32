@@ -7,12 +7,13 @@
 #define NUM_DIGITAL_PINS        40
 #define NUM_ANALOG_INPUTS       16
 
-#define analogInputToDigitalPin(p)  (((p)<20)?(esp32_adc2gpio[(p)]):-1)
+#define analogInputToDigitalPin(p)  (((p)<20)?(analogChannelToDigitalPin(p)):-1)
 #define digitalPinToInterrupt(p)    (((p)<40)?(p):-1)
 #define digitalPinHasPWM(p)         (p < 34)
 
 static const uint8_t LED_BUILTIN = 13;
 #define BUILTIN_LED  LED_BUILTIN // backward compatibility
+#define LED_BUILTIN LED_BUILTIN
 
 static const uint8_t TX = 17;
 static const uint8_t RX = 16;
@@ -44,14 +45,13 @@ static const uint8_t A11 = 12;
 static const uint8_t A12 = 13;
 
 // vbat measure
+static const uint8_t BATT_MONITOR = 35;
 static const uint8_t A13 = 35;
 //static const uint8_t Ax = 0; // not used/available
 //static const uint8_t Ax = 2; // not used/available
 
 
 static const uint8_t T0 = 4;
-static const uint8_t T1 = 0;
-static const uint8_t T2 = 2;
 static const uint8_t T3 = 15;
 static const uint8_t T4 = 13;
 static const uint8_t T5 = 12;

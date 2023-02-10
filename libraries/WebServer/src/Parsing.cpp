@@ -32,7 +32,7 @@
 #define NETWORK_CLIENT_CLASS HusarnetClient
 #elif (NETWORK_TYPE == NETWORK_TYPE_WIFI)
 #include "WiFiServer.h"
-#include "WiFiServer.h"
+#include "WiFiClient.h"
 #define NETWORK_SERVER_CLASS WiFiServer
 #define NETWORK_CLIENT_CLASS WiFiServer
 #endif
@@ -44,10 +44,18 @@
 #define WEBSERVER_MAX_POST_ARGS 32
 #endif
 
+#define __STR(a) #a
+#define _STR(a) __STR(a)
+const char * _http_method_str[] = {
+#define XX(num, name, string) _STR(name),
+  HTTP_METHOD_MAP(XX)
+#undef XX
+};
+
 static const char Content_Type[] PROGMEM = "Content-Type";
 static const char filename[] PROGMEM = "filename";
 
-static char* readBytesWithTimeout(NETWORK_CLIENT_CLASS& client, size_t maxLength, size_t& dataLength, int timeout_ms)
+static char* readBytesWithTimeout(WiFiClient& client, size_t maxLength, size_t& dataLength, int timeout_ms)
 {
   char *buf = nullptr;
   dataLength = 0;
@@ -79,14 +87,14 @@ static char* readBytesWithTimeout(NETWORK_CLIENT_CLASS& client, size_t maxLength
   return buf;
 }
 
-bool WebServer::_parseRequest(NETWORK_CLIENT_CLASS& client) {
+bool WebServer::_parseRequest(WiFiClient& client) {
   // Read the first line of HTTP request
   String req = client.readStringUntil('\r');
   client.readStringUntil('\n');
   //reset header value
   for (int i = 0; i < _headerKeysCount; ++i) {
     _currentHeaders[i].value =String();
-   }
+  }
 
   // First line of HTTP request looks like "GET /path HTTP/1.1"
   // Retrieve the "/path" part by finding the spaces
@@ -109,18 +117,19 @@ bool WebServer::_parseRequest(NETWORK_CLIENT_CLASS& client) {
   }
   _currentUri = url;
   _chunked = false;
+  _clientContentLength = 0;  // not known yet, or invalid
 
-  HTTPMethod method = HTTP_GET;
-  if (methodStr == F("POST")) {
-    method = HTTP_POST;
-  } else if (methodStr == F("DELETE")) {
-    method = HTTP_DELETE;
-  } else if (methodStr == F("OPTIONS")) {
-    method = HTTP_OPTIONS;
-  } else if (methodStr == F("PUT")) {
-    method = HTTP_PUT;
-  } else if (methodStr == F("PATCH")) {
-    method = HTTP_PATCH;
+  HTTPMethod method = HTTP_ANY;
+  size_t num_methods = sizeof(_http_method_str) / sizeof(const char *);
+  for (size_t i=0; i<num_methods; i++) {
+    if (methodStr == _http_method_str[i]) {
+      method = (HTTPMethod)i;
+      break;
+    }
+  }
+  if (method == HTTP_ANY) {
+    log_e("Unknown HTTP Method: %s", methodStr.c_str());
+    return false;
   }
   _currentMethod = method;
 
@@ -142,7 +151,6 @@ bool WebServer::_parseRequest(NETWORK_CLIENT_CLASS& client) {
     String headerValue;
     bool isForm = false;
     bool isEncoded = false;
-    uint32_t contentLength = 0;
     //parse headers
     while(1){
       req = client.readStringUntil('\r');
@@ -173,7 +181,7 @@ bool WebServer::_parseRequest(NETWORK_CLIENT_CLASS& client) {
           isForm = true;
         }
       } else if (headerName.equalsIgnoreCase(F("Content-Length"))){
-        contentLength = headerValue.toInt();
+        _clientContentLength = headerValue.toInt();
       } else if (headerName.equalsIgnoreCase(F("Host"))){
         _hostHeader = headerValue;
       }
@@ -181,12 +189,12 @@ bool WebServer::_parseRequest(NETWORK_CLIENT_CLASS& client) {
 
     if (!isForm){
       size_t plainLength;
-      char* plainBuf = readBytesWithTimeout(client, contentLength, plainLength, HTTP_MAX_POST_WAIT);
-      if (plainLength < contentLength) {
+      char* plainBuf = readBytesWithTimeout(client, _clientContentLength, plainLength, HTTP_MAX_POST_WAIT);
+      if (plainLength < _clientContentLength) {
       	free(plainBuf);
       	return false;
       }
-      if (contentLength > 0) {
+      if (_clientContentLength > 0) {
         if(isEncoded){
           //url encoded form
           if (searchStr != "") searchStr += '&';
@@ -206,11 +214,10 @@ bool WebServer::_parseRequest(NETWORK_CLIENT_CLASS& client) {
         // No content - but we can still have arguments in the URL.
         _parseArguments(searchStr);
       }
-    }
-
-    if (isForm){
+    } else {
+      // it IS a form
       _parseArguments(searchStr);
-      if (!_parseForm(client, boundaryStr, contentLength)) {
+      if (!_parseForm(client, boundaryStr, _clientContentLength)) {
         return false;
       }
     }
@@ -316,8 +323,7 @@ void WebServer::_uploadWriteByte(uint8_t b){
   _currentUpload->buf[_currentUpload->currentSize++] = b;
 }
 
-int WebServer::_uploadReadByte(NETWORK_CLIENT_CLASS& client){
-  if (!client.connected()) return -1;
+int WebServer::_uploadReadByte(WiFiClient& client){
   int res = client.read();
   if(res < 0) {
     // keep trying until you either read a valid byte or timeout
@@ -325,6 +331,7 @@ int WebServer::_uploadReadByte(NETWORK_CLIENT_CLASS& client){
     long timeoutIntervalMillis = client.getTimeout();
     boolean timedOut = false;
     for(;;) {
+      if (!client.connected()) return -1;
       // loosely modeled after blinkWithoutDelay pattern
       while(!timedOut && !client.available() && client.connected()){
         delay(2);
@@ -357,7 +364,7 @@ int WebServer::_uploadReadByte(NETWORK_CLIENT_CLASS& client){
   return res;
 }
 
-bool WebServer::_parseForm(NETWORK_CLIENT_CLASS& client, String boundary, uint32_t len){
+bool WebServer::_parseForm(WiFiClient& client, String boundary, uint32_t len){
   (void) len;
   log_v("Parse Form: Boundary: %s Length: %d", boundary.c_str(), len);
   String line;
@@ -370,9 +377,9 @@ bool WebServer::_parseForm(NETWORK_CLIENT_CLASS& client, String boundary, uint32
   client.readStringUntil('\n');
   //start reading the form
   if (line == ("--"+boundary)){
-	 if(_postArgs) delete[] _postArgs;
-	 _postArgs = new RequestArgument[WEBSERVER_MAX_POST_ARGS];
-     _postArgsLen = 0;
+   if(_postArgs) delete[] _postArgs;
+    _postArgs = new RequestArgument[WEBSERVER_MAX_POST_ARGS];
+    _postArgsLen = 0;
     while(1){
       String argName;
       String argValue;
@@ -427,6 +434,9 @@ bool WebServer::_parseForm(NETWORK_CLIENT_CLASS& client, String boundary, uint32
             if (line == ("--"+boundary+"--")){
               log_v("Done Parsing POST");
               break;
+            } else if (_postArgsLen >= WEBSERVER_MAX_POST_ARGS) {
+              log_e("Too many PostArgs (max: %d) in request.", WEBSERVER_MAX_POST_ARGS);
+              return false;
             }
           } else {
             _currentUpload.reset(new HTTPUpload());
@@ -472,7 +482,23 @@ readfile:
               }
 
               uint8_t endBuf[boundary.length()];
-              client.readBytes(endBuf, boundary.length());
+              uint32_t i = 0;
+              while(i < boundary.length()){
+                argByte = _uploadReadByte(client);
+                if(argByte < 0) return _parseFormUploadAborted();
+                if ((char)argByte == 0x0D){
+                  _uploadWriteByte(0x0D);
+                  _uploadWriteByte(0x0A);
+                  _uploadWriteByte((uint8_t)('-'));
+                  _uploadWriteByte((uint8_t)('-'));
+                  uint32_t j = 0;
+                  while(j < i){
+                    _uploadWriteByte(endBuf[j++]);
+                  }
+                  goto readfile;
+                }
+                endBuf[i++] = (uint8_t)argByte;
+              }
 
               if (strstr((const char*)endBuf, boundary.c_str()) != NULL){
                 if(_currentHandler && _currentHandler->canUpload(_currentUri))
